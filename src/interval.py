@@ -1,4 +1,5 @@
 import jax.numpy as jnp
+import jax.nn as nn
 
 
 class DualInterval:
@@ -105,6 +106,31 @@ def interval_div(a_l, a_u, b_l, b_u):
 
 def interval_square(a_l, a_u):
     return interval_mul(a_l, a_u, a_l, a_u)
+
+
+def relu(di: DualInterval) -> DualInterval:
+    rl = jnp.maximum(0.0, di.real_l)
+    ru = jnp.maximum(0.0, di.real_u)
+
+    zero = jnp.zeros_like(di.dual_l)
+    one = jnp.ones_like(di.dual_l)
+
+    dual_l = jnp.where(di.real_u <= 0, zero, jnp.where(di.real_l >= 0, di.dual_l, jnp.minimum(zero, di.dual_l)))
+    dual_u = jnp.where(di.real_u <= 0, zero, jnp.where(di.real_l >= 0, di.dual_u, jnp.maximum(one * di.dual_u, di.dual_u)))
+
+    return DualInterval(rl, ru, dual_l, dual_u)
+
+
+def sigmoid(di: DualInterval) -> DualInterval:
+    rl = nn.sigmoid(di.real_l)
+    ru = nn.sigmoid(di.real_u)
+
+    deriv_l = rl * (1.0 - ru)
+    deriv_u = ru * (1.0 - rl)
+
+    dual_l, dual_u = interval_mul(deriv_l, deriv_u, di.dual_l, di.dual_u)
+
+    return DualInterval(rl, ru, dual_l, dual_u)
 
 
 def to_dual_interval(value, epsilon=0.0, gradient_seed=None):

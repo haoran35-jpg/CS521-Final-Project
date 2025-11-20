@@ -3,10 +3,11 @@ import sys
 sys.path.append("../src")
 
 import jax.numpy as jnp
+import jax.nn as nn
 import numpy as np
 from jax import value_and_grad
 
-from interval import DualInterval, interval_mul, interval_div
+from interval import DualInterval, interval_mul, relu, sigmoid
 from interpreter import analyze_function
 
 
@@ -91,6 +92,49 @@ def test_subtraction_and_division():
     assert np.isclose(val_l[0], 2.0) and np.isclose(val_u[0], 4.0)
     assert np.isclose(grad_l[0], 0.2) and np.isclose(grad_u[0], 0.4)
     print(f"✓ Scalar division: value=[{val_l[0]}, {val_u[0]}], gradient=[{grad_l[0]}, {grad_u[0]}]")
+
+
+def test_activation_functions():
+    print("\n--- Testing ReLU activation ---")
+
+    di_pos = DualInterval(jnp.array([1.0]), jnp.array([2.0]), jnp.array([0.5]), jnp.array([1.0]))
+    result = relu(di_pos)
+    val_l, val_u = result.get_bounds()
+    grad_l, grad_u = result.get_gradient_bounds()
+
+    assert np.isclose(val_l[0], 1.0) and np.isclose(val_u[0], 2.0)
+    assert np.isclose(grad_l[0], 0.5) and np.isclose(grad_u[0], 1.0)
+    print(f"✓ ReLU (positive): value=[{val_l[0]}, {val_u[0]}], gradient=[{grad_l[0]}, {grad_u[0]}]")
+
+    di_neg = DualInterval(jnp.array([-2.0]), jnp.array([-1.0]), jnp.array([0.5]), jnp.array([1.0]))
+    result = relu(di_neg)
+    val_l, val_u = result.get_bounds()
+    grad_l, grad_u = result.get_gradient_bounds()
+
+    assert np.isclose(val_l[0], 0.0) and np.isclose(val_u[0], 0.0)
+    assert np.isclose(grad_l[0], 0.0) and np.isclose(grad_u[0], 0.0)
+    print(f"✓ ReLU (negative): value=[{val_l[0]}, {val_u[0]}], gradient=[{grad_l[0]}, {grad_u[0]}]")
+
+    di_cross = DualInterval(jnp.array([-1.0]), jnp.array([1.0]), jnp.array([0.5]), jnp.array([1.0]))
+    result = relu(di_cross)
+    val_l, val_u = result.get_bounds()
+    grad_l, grad_u = result.get_gradient_bounds()
+
+    assert np.isclose(val_l[0], 0.0) and np.isclose(val_u[0], 1.0)
+    print(f"✓ ReLU (crossing zero): value=[{val_l[0]}, {val_u[0]}], gradient=[{grad_l[0]:.3f}, {grad_u[0]:.3f}]")
+
+    print("\n--- Testing Sigmoid activation ---")
+
+    di = DualInterval(jnp.array([0.0]), jnp.array([1.0]), jnp.array([0.5]), jnp.array([1.0]))
+    result = sigmoid(di)
+    val_l, val_u = result.get_bounds()
+    grad_l, grad_u = result.get_gradient_bounds()
+
+    expected_val_l = 1.0 / (1.0 + np.exp(0.0))
+    expected_val_u = 1.0 / (1.0 + np.exp(-1.0))
+
+    assert np.isclose(val_l[0], expected_val_l) and np.isclose(val_u[0], expected_val_u)
+    print(f"✓ Sigmoid: value=[{val_l[0]:.3f}, {val_u[0]:.3f}], gradient=[{grad_l[0]:.3f}, {grad_u[0]:.3f}]")
 
 
 def test_soundness_simple_functions():
@@ -263,11 +307,66 @@ def test_soundness_simple_functions():
     print(f"✓ All test points within value bounds [{val_l[0]:.3f}, {val_u[0]:.3f}]")
     print(f"✓ All test points within gradient bounds [{grad_l[0]:.3f}, {grad_u[0]:.3f}]")
 
+    print("\n--- f(x) = sigmoid(x) ---")
+
+    def sigmoid_fn(x):
+        return nn.sigmoid(x)
+
+    x = jnp.array([0.0])
+    epsilon = 0.1
+    grad_seed = jnp.array([1.0])
+    results = analyze_function(sigmoid_fn, x, epsilon=epsilon, gradient_seeds=[grad_seed])
+    val_l, val_u = results[0].get_bounds()
+    grad_l, grad_u = results[0].get_gradient_bounds()
+
+    def sigmoid_scalar(x_scalar):
+        x_arr = jnp.array([x_scalar])
+        return nn.sigmoid(x_arr)[0]
+
+    value_and_grad_f = value_and_grad(sigmoid_scalar)
+    test_points = np.random.uniform(x[0] - epsilon, x[0] + epsilon, 20)
+
+    for test_x in test_points:
+        actual_val, actual_grad = value_and_grad_f(test_x)
+        assert val_l <= actual_val <= val_u, f"Value bound violated at x={test_x}"
+        assert grad_l <= actual_grad <= grad_u, f"Gradient bound violated at x={test_x}"
+
+    print(f"✓ All test points within value bounds [{val_l[0]:.3f}, {val_u[0]:.3f}]")
+    print(f"✓ All test points within gradient bounds [{grad_l[0]:.3f}, {grad_u[0]:.3f}]")
+
+    print("\n--- f(x) = relu(x) ---")
+
+    def relu_fn(x):
+        return nn.relu(x)
+
+    x = jnp.array([0.0])
+    epsilon = 0.1
+    grad_seed = jnp.array([1.0])
+    results = analyze_function(relu_fn, x, epsilon=epsilon, gradient_seeds=[grad_seed])
+    val_l, val_u = results[0].get_bounds()
+    grad_l, grad_u = results[0].get_gradient_bounds()
+
+    def relu_scalar(x_scalar):
+        x_arr = jnp.array([x_scalar])
+        return nn.relu(x_arr)[0]
+
+    value_and_grad_f = value_and_grad(relu_scalar)
+    test_points = np.random.uniform(x[0] - epsilon, x[0] + epsilon, 20)
+
+    for test_x in test_points:
+        actual_val, actual_grad = value_and_grad_f(test_x)
+        assert val_l <= actual_val <= val_u, f"Value bound violated at x={test_x}"
+        assert grad_l <= actual_grad <= grad_u, f"Gradient bound violated at x={test_x}"
+
+    print(f"✓ All test points within value bounds [{val_l[0]:.3f}, {val_u[0]:.3f}]")
+    print(f"✓ All test points within gradient bounds [{grad_l[0]:.3f}, {grad_u[0]:.3f}]")
+
 
 def run_all_tests():
     test_imul()
     test_dual_interval_operations()
     test_subtraction_and_division()
+    test_activation_functions()
     test_soundness_simple_functions()
 
 

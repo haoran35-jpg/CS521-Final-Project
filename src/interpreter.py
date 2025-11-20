@@ -2,7 +2,7 @@ import jax.numpy as jnp
 from jax import make_jaxpr
 from typing import Dict, Any
 
-from interval import DualInterval, to_dual_interval
+from interval import DualInterval, to_dual_interval, sigmoid, relu
 
 
 def _is_literal(var):
@@ -45,6 +45,14 @@ class JaxprDualIntervalInterpreter:
             outvals = [invals[0] / invals[1]]
         elif primitive.name == "max":
             outvals = [self._max(invals[0], invals[1])]
+        elif primitive.name == "relu":
+            outvals = [relu(invals[0])]
+        elif primitive.name == "logistic":
+            outvals = [sigmoid(invals[0])]
+        elif primitive.name == "custom_jvp_call":
+            outvals = self._handle_custom_jvp(invals, eqn.params)
+        elif primitive.name == "jit":
+            outvals = self._handle_jit(invals, eqn.params)
         elif primitive.name == "reshape":
             outvals = [self._reshape(invals[0], eqn.params)]
         elif primitive.name == "transpose":
@@ -89,6 +97,28 @@ class JaxprDualIntervalInterpreter:
             jnp.transpose(x.dual_l, perm),
             jnp.transpose(x.dual_u, perm),
         )
+
+    def _handle_custom_jvp(self, invals, params):
+        call_jaxpr = params["call_jaxpr"]
+        return self._interpret_jaxpr(call_jaxpr, invals)
+
+    def _handle_jit(self, invals, params):
+        jaxpr = params["jaxpr"]
+        return self._interpret_jaxpr(jaxpr, invals)
+
+    def _interpret_jaxpr(self, jaxpr, invals):
+        saved_env = self.env.copy()
+
+        for invar, inval in zip(jaxpr.invars, invals):
+            self.env[invar] = inval
+
+        for eqn in jaxpr.eqns:
+            self._process_equation(eqn)
+
+        outvals = [self.env[outvar] for outvar in jaxpr.outvars]
+
+        self.env = saved_env
+        return outvals
 
 
 def analyze_function(func, *args, epsilon=0.01, gradient_seeds=None):
