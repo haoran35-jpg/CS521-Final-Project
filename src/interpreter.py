@@ -37,8 +37,12 @@ class JaxprDualIntervalInterpreter:
 
         if primitive.name == "add":
             outvals = [invals[0] + invals[1]]
+        elif primitive.name == "sub":
+            outvals = [invals[0] - invals[1]]
         elif primitive.name == "mul":
             outvals = [invals[0] * invals[1]]
+        elif primitive.name == "div":
+            outvals = [invals[0] / invals[1]]
         elif primitive.name == "max":
             outvals = [self._max(invals[0], invals[1])]
         elif primitive.name == "reshape":

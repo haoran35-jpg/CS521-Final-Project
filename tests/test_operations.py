@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import value_and_grad
 
-from interval import DualInterval, interval_mul
+from interval import DualInterval, interval_mul, interval_div
 from interpreter import analyze_function
 
 
@@ -48,6 +48,49 @@ def test_dual_interval_operations():
 
     assert np.isclose(grad_l[0], 1.7) and np.isclose(grad_u[0], 4.6)
     print(f"✓ Gradient bounds: [{grad_l[0]:.3f}, {grad_u[0]:.3f}]")
+
+
+def test_subtraction_and_division():
+    di1 = DualInterval(jnp.array([2.0]), jnp.array([4.0]), jnp.array([0.5]), jnp.array([1.0]))
+    di2 = DualInterval(jnp.array([1.0]), jnp.array([2.0]), jnp.array([0.1]), jnp.array([0.2]))
+
+    print("\n--- Testing dual-interval subtraction ---")
+    result = di1 - di2
+    val_l, val_u = result.get_bounds()
+    grad_l, grad_u = result.get_gradient_bounds()
+
+    assert np.isclose(val_l[0], 0.0) and np.isclose(val_u[0], 3.0)
+    assert np.isclose(grad_l[0], 0.3) and np.isclose(grad_u[0], 0.9)
+    print(f"✓ Subtraction: value=[{val_l[0]}, {val_u[0]}], gradient=[{grad_l[0]}, {grad_u[0]}]")
+
+    print("\n--- Testing scalar subtraction ---")
+    result = di1 - 1.0
+    val_l, val_u = result.get_bounds()
+    grad_l, grad_u = result.get_gradient_bounds()
+
+    assert np.isclose(val_l[0], 1.0) and np.isclose(val_u[0], 3.0)
+    assert np.isclose(grad_l[0], 0.5) and np.isclose(grad_u[0], 1.0)
+    print(f"✓ Scalar subtraction: value=[{val_l[0]}, {val_u[0]}], gradient=[{grad_l[0]}, {grad_u[0]}]")
+
+    print("\n--- Testing dual-interval division ---")
+    di3 = DualInterval(jnp.array([4.0]), jnp.array([8.0]), jnp.array([0.4]), jnp.array([0.8]))
+    di4 = DualInterval(jnp.array([2.0]), jnp.array([4.0]), jnp.array([0.1]), jnp.array([0.2]))
+    result = di3 / di4
+    val_l, val_u = result.get_bounds()
+    grad_l, grad_u = result.get_gradient_bounds()
+
+    assert np.isclose(val_l[0], 1.0) and np.isclose(val_u[0], 4.0)
+    print(f"✓ Division value bounds: [{val_l[0]}, {val_u[0]}]")
+    print(f"  Gradient bounds: [{grad_l[0]:.3f}, {grad_u[0]:.3f}]")
+
+    print("\n--- Testing scalar division ---")
+    result = di3 / 2.0
+    val_l, val_u = result.get_bounds()
+    grad_l, grad_u = result.get_gradient_bounds()
+
+    assert np.isclose(val_l[0], 2.0) and np.isclose(val_u[0], 4.0)
+    assert np.isclose(grad_l[0], 0.2) and np.isclose(grad_u[0], 0.4)
+    print(f"✓ Scalar division: value=[{val_l[0]}, {val_u[0]}], gradient=[{grad_l[0]}, {grad_u[0]}]")
 
 
 def test_soundness_simple_functions():
@@ -166,10 +209,65 @@ def test_soundness_simple_functions():
     print(f"Actual gradient range: [{min_grad:.3f}, {max_grad:.3f}]")
     print(f"✓ All test points within gradient bounds [{grad_l[0]:.3f}, {grad_u[0]:.3f}]")
 
+    print("\n--- f(x) = x - 2 ---")
+
+    def subtract(x):
+        return x - 2
+
+    x = jnp.array([3.0])
+    epsilon = 0.05
+    grad_seed = jnp.array([1.0])
+    results = analyze_function(subtract, x, epsilon=epsilon, gradient_seeds=[grad_seed])
+    val_l, val_u = results[0].get_bounds()
+    grad_l, grad_u = results[0].get_gradient_bounds()
+
+    def subtract_scalar(x_scalar):
+        x_arr = jnp.array([x_scalar])
+        return (x_arr - 2)[0]
+
+    value_and_grad_f = value_and_grad(subtract_scalar)
+    test_points = np.random.uniform(x[0] - epsilon, x[0] + epsilon, 20)
+
+    for test_x in test_points:
+        actual_val, actual_grad = value_and_grad_f(test_x)
+        assert val_l <= actual_val <= val_u, f"Value bound violated at x={test_x}"
+        assert grad_l <= actual_grad <= grad_u, f"Gradient bound violated at x={test_x}"
+
+    print(f"✓ All test points within value bounds [{val_l[0]:.3f}, {val_u[0]:.3f}]")
+    print(f"✓ All test points within gradient bounds [{grad_l[0]:.3f}, {grad_u[0]:.3f}]")
+
+    print("\n--- f(x) = 10 / x ---")
+
+    def divide(x):
+        return 10.0 / x
+
+    x = jnp.array([2.0])
+    epsilon = 0.05
+    grad_seed = jnp.array([1.0])
+    results = analyze_function(divide, x, epsilon=epsilon, gradient_seeds=[grad_seed])
+    val_l, val_u = results[0].get_bounds()
+    grad_l, grad_u = results[0].get_gradient_bounds()
+
+    def divide_scalar(x_scalar):
+        x_arr = jnp.array([x_scalar])
+        return (10.0 / x_arr)[0]
+
+    value_and_grad_f = value_and_grad(divide_scalar)
+    test_points = np.random.uniform(x[0] - epsilon, x[0] + epsilon, 20)
+
+    for test_x in test_points:
+        actual_val, actual_grad = value_and_grad_f(test_x)
+        assert val_l <= actual_val <= val_u, f"Value bound violated at x={test_x}"
+        assert grad_l <= actual_grad <= grad_u, f"Gradient bound violated at x={test_x}"
+
+    print(f"✓ All test points within value bounds [{val_l[0]:.3f}, {val_u[0]:.3f}]")
+    print(f"✓ All test points within gradient bounds [{grad_l[0]:.3f}, {grad_u[0]:.3f}]")
+
 
 def run_all_tests():
     test_imul()
     test_dual_interval_operations()
+    test_subtraction_and_division()
     test_soundness_simple_functions()
 
 

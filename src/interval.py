@@ -26,6 +26,9 @@ class DualInterval:
     def __repr__(self):
         return f"Real: [{self.real_l}, {self.real_u}], Dual: [{self.dual_l}, {self.dual_u}]"
 
+    def __neg__(self):
+        return DualInterval(-self.real_u, -self.real_l, -self.dual_u, -self.dual_l)
+
     def __add__(self, other):
         if isinstance(other, DualInterval):
             return DualInterval(
@@ -36,6 +39,14 @@ class DualInterval:
             )
         else:  # Assume scalar
             return DualInterval(self.real_l + other, self.real_u + other, self.dual_l, self.dual_u)
+
+    __radd__ = __add__
+
+    def __sub__(self, other):
+        return self + -other
+
+    def __rsub__(self, other):
+        return -self + other
 
     def __mul__(self, other):
         if isinstance(other, DualInterval):
@@ -52,6 +63,25 @@ class DualInterval:
             else:
                 return DualInterval(self.real_u * other, self.real_l * other, self.dual_u * other, self.dual_l * other)
 
+    __rmul__ = __mul__
+
+    def __truediv__(self, other):
+        if isinstance(other, DualInterval):
+            one = jnp.ones_like(other.real_l)
+            inv_real_l, inv_real_u = interval_div(one, one, other.real_l, other.real_u)
+
+            squared_real_l, squared_real_u = interval_square(other.real_l, other.real_u)
+            inv_dual_l, inv_dual_u = interval_div(other.dual_l, other.dual_u, squared_real_l, squared_real_u)
+            inv_dual_l, inv_dual_u = -inv_dual_u, -inv_dual_l
+
+            inv = DualInterval(inv_real_l, inv_real_u, inv_dual_l, inv_dual_u)
+            return self * inv
+        else:  # Assume scalar
+            if other < 0:
+                return DualInterval(self.real_u / other, self.real_l / other, self.dual_u / other, self.dual_l / other)
+            else:
+                return DualInterval(self.real_l / other, self.real_u / other, self.dual_l / other, self.dual_u / other)
+
     def get_bounds(self):
         return self.real_l, self.real_u
 
@@ -64,6 +94,17 @@ def interval_mul(a_l, a_u, b_l, b_u):
     real_l = jnp.minimum(jnp.minimum(ac, ad), jnp.minimum(bc, bd))
     real_u = jnp.maximum(jnp.maximum(ac, ad), jnp.maximum(bc, bd))
     return real_l, real_u
+
+
+def interval_div(a_l, a_u, b_l, b_u):
+    ac, ad, bc, bd = a_l / b_l, a_l / b_u, a_u / b_l, a_u / b_u
+    real_l = jnp.minimum(jnp.minimum(ac, ad), jnp.minimum(bc, bd))
+    real_u = jnp.maximum(jnp.maximum(ac, ad), jnp.maximum(bc, bd))
+    return real_l, real_u
+
+
+def interval_square(a_l, a_u):
+    return interval_mul(a_l, a_u, a_l, a_u)
 
 
 def to_dual_interval(value, epsilon=0.0, gradient_seed=None):
