@@ -116,7 +116,9 @@ def relu(di: DualInterval) -> DualInterval:
     one = jnp.ones_like(di.dual_l)
 
     dual_l = jnp.where(di.real_u <= 0, zero, jnp.where(di.real_l >= 0, di.dual_l, jnp.minimum(zero, di.dual_l)))
-    dual_u = jnp.where(di.real_u <= 0, zero, jnp.where(di.real_l >= 0, di.dual_u, jnp.maximum(one * di.dual_u, di.dual_u)))
+    dual_u = jnp.where(
+        di.real_u <= 0, zero, jnp.where(di.real_l >= 0, di.dual_u, jnp.maximum(one * di.dual_u, di.dual_u))
+    )
 
     return DualInterval(rl, ru, dual_l, dual_u)
 
