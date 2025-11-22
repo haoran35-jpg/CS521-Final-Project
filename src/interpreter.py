@@ -3,6 +3,7 @@ from jax import make_jaxpr
 from typing import Dict, Any
 
 from interval import DualInterval, to_dual_interval, sigmoid, relu
+from operations import interval_matmul
 
 
 def _is_literal(var):
@@ -57,6 +58,8 @@ class JaxprDualIntervalInterpreter:
             outvals = [self._reshape(invals[0], eqn.params)]
         elif primitive.name == "transpose":
             outvals = [self._transpose(invals[0], eqn.params)]
+        elif primitive.name == "dot_general" or primitive.name == "dot":
+            outvals = [self._matmul(invals[0], invals[1], eqn.params)]
         else:
             raise NotImplementedError(f"Primitive {primitive.name} not supported")
 
@@ -97,6 +100,15 @@ class JaxprDualIntervalInterpreter:
             jnp.transpose(x.dual_l, perm),
             jnp.transpose(x.dual_u, perm),
         )
+
+    def _matmul(self, a: DualInterval, b: DualInterval, params: Dict[str, Any]) -> DualInterval:
+        """Matrix multiplication C = A @ B. Gradient: dC/dx = (dA/dx) @ B + A @ (dB/dx)."""
+        real_l, real_u = interval_matmul(a.real_l, a.real_u, b.real_l, b.real_u)
+        grad_a_b_l, grad_a_b_u = interval_matmul(a.dual_l, a.dual_u, b.real_l, b.real_u)
+        a_grad_b_l, a_grad_b_u = interval_matmul(a.real_l, a.real_u, b.dual_l, b.dual_u)
+        dual_l = grad_a_b_l + a_grad_b_l
+        dual_u = grad_a_b_u + a_grad_b_u
+        return DualInterval(real_l, real_u, dual_l, dual_u)
 
     def _handle_custom_jvp(self, invals, params):
         call_jaxpr = params["call_jaxpr"]

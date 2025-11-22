@@ -66,6 +66,17 @@ class DualInterval:
 
     __rmul__ = __mul__
 
+    def __matmul__(self, other):
+        """Matrix multiplication C = A @ B. Gradient: dC/dx = (dA/dx) @ B + A @ (dB/dx)."""
+        if isinstance(other, DualInterval):
+            from operations import interval_matmul
+            rl, ru = interval_matmul(self.real_l, self.real_u, other.real_l, other.real_u)
+            grad_a_b_l, grad_a_b_u = interval_matmul(self.dual_l, self.dual_u, other.real_l, other.real_u)
+            a_grad_b_l, a_grad_b_u = interval_matmul(self.real_l, self.real_u, other.dual_l, other.dual_u)
+            return DualInterval(rl, ru, grad_a_b_l + a_grad_b_l, grad_a_b_u + a_grad_b_u)
+        else:
+            raise TypeError("Matrix multiplication requires DualInterval operands")
+
     def __truediv__(self, other):
         if isinstance(other, DualInterval):
             one = jnp.ones_like(other.real_l)
