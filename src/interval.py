@@ -24,9 +24,6 @@ class DualInterval:
         assert jnp.all(real_l <= real_u), "Invalid real interval bounds"
         assert jnp.all(dual_l <= dual_u), "Invalid dual interval bounds"
 
-    def __repr__(self):
-        return f"Real: [{self.real_l}, {self.real_u}], Dual: [{self.dual_l}, {self.dual_u}]"
-
     def __neg__(self):
         return DualInterval(-self.real_u, -self.real_l, -self.dual_u, -self.dual_l)
 
@@ -65,17 +62,6 @@ class DualInterval:
                 return DualInterval(self.real_u * other, self.real_l * other, self.dual_u * other, self.dual_l * other)
 
     __rmul__ = __mul__
-
-    def __matmul__(self, other):
-        """Matrix multiplication C = A @ B. Gradient: dC/dx = (dA/dx) @ B + A @ (dB/dx)."""
-        if isinstance(other, DualInterval):
-            from operations import interval_matmul
-            rl, ru = interval_matmul(self.real_l, self.real_u, other.real_l, other.real_u)
-            grad_a_b_l, grad_a_b_u = interval_matmul(self.dual_l, self.dual_u, other.real_l, other.real_u)
-            a_grad_b_l, a_grad_b_u = interval_matmul(self.real_l, self.real_u, other.dual_l, other.dual_u)
-            return DualInterval(rl, ru, grad_a_b_l + a_grad_b_l, grad_a_b_u + a_grad_b_u)
-        else:
-            raise TypeError("Matrix multiplication requires DualInterval operands")
 
     def __truediv__(self, other):
         if isinstance(other, DualInterval):
@@ -143,6 +129,28 @@ def sigmoid(di: DualInterval) -> DualInterval:
 
     dual_l, dual_u = interval_mul(deriv_l, deriv_u, di.dual_l, di.dual_u)
 
+    return DualInterval(rl, ru, dual_l, dual_u)
+
+
+def sqrt(di: DualInterval) -> DualInterval:
+    """Square root for DualInterval. Requires real_l >= 0."""
+    assert jnp.all(di.real_l >= 0), "sqrt requires non-negative lower bound"
+    rl = jnp.sqrt(di.real_l)
+    ru = jnp.sqrt(di.real_u)
+    # Gradient: d(sqrt(x))/dx = 1/(2*sqrt(x))
+    inv_sqrt_l = 1.0 / (2.0 * jnp.sqrt(jnp.maximum(di.real_l, 1e-8)))
+    inv_sqrt_u = 1.0 / (2.0 * jnp.sqrt(jnp.maximum(di.real_u, 1e-8)))
+    dual_l, dual_u = interval_mul(inv_sqrt_l, inv_sqrt_u, di.dual_l, di.dual_u)
+    return DualInterval(rl, ru, dual_l, dual_u)
+
+
+def exp(di: DualInterval) -> DualInterval:
+    """Exponential for DualInterval."""
+    rl = jnp.exp(di.real_l)
+    ru = jnp.exp(di.real_u)
+    # Gradient: d(exp(x))/dx = exp(x)
+    deriv_l, deriv_u = rl, ru
+    dual_l, dual_u = interval_mul(deriv_l, deriv_u, di.dual_l, di.dual_u)
     return DualInterval(rl, ru, dual_l, dual_u)
 
 
